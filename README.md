@@ -15,39 +15,14 @@ The system is built around an ESP32-S3 microcontroller and integrates environmen
 The long-term objective of this component is to use the collected drying data to develop a Remaining Drying Time (RDT) prediction model.
 
 🏗️ System Architecture
-Plaintext
-             Cinnamon Dehydration Chamber
-                       │
-                       │
-        ┌──────────────┴──────────────┐
-        │                             │
-      SHT30                      Load Cell
- Temperature + RH               + HX711
-        │                             │
-        └──────────────┬──────────────┘
-                       │
-                   ESP32-S3
-                       │
-          ┌────────────┼─────────────┐
-          │            │             │
-        OLED         Keypad        Relays
-          │            │             │
-          │            │        ┌────┴────┐
-          │            │        │         │
-       System       Target     Heater     Fan
-       Status       Moisture
-                       │
-                       │
-                    Wi-Fi
-                       │
-                       ▼
-                Backend / Database
-                       │
-                       ▼
-                 Web Dashboard
-                       │
-                       ▼
-              RDT Prediction Model
+Chamber Sensors: SHT30 (Temperature & RH) and Load Cell + HX711 (Weight measurement)
+
+Microcontroller: ESP32-S3 DevKitC-1 processing sensor inputs
+
+User Interface & Control: OLED Display (System Status), 4x4 Keypad (Target Moisture), and Relays (Heater & Fan control)
+
+Connectivity & Backend: Wi-Fi communication sending data to Backend / Database, Web Dashboard, and RDT Prediction Model
+
 🔧 Main Hardware Components
 ESP32-S3 DevKitC-1 – Main microcontroller
 
@@ -162,9 +137,8 @@ Web dashboard visualization
 
 🌐 Web Application Integration
 The ESP32-S3 can communicate with the backend through Wi-Fi. A simplified data flow is:
-
-Plaintext
 Sensors → ESP32-S3 → Wi-Fi → Backend API → Database → Web Dashboard → RDT Prediction
+
 The web application can be used to display:
 
 Live temperature
@@ -214,53 +188,8 @@ Experimental drying development
 
 Future RDT integration
 
-🧪 Current Development Status
-The project is currently under prototype development.
-
-✅ Completed / Tested
-ESP32-S3 setup
-
-OLED display integration
-
-SHT30 temperature and humidity sensing
-
-HX711 and load-cell integration
-
-Load-cell calibration testing
-
-4×4 keypad input
-
-Relay control
-
-Chamber airflow design
-
-Individual hardware component testing
-
-🔄 Current / Upcoming Work
-Complete chamber integration
-
-Real cinnamon drying experiments
-
-Automatic drying data logging
-
-Moisture estimation using weight reduction
-
-Wi-Fi and backend communication
-
-Database integration
-
-Web dashboard integration
-
-Preliminary RDT prediction model
-
-Further experimental validation
-
 🎯 Research Objective
+
 The dehydration chamber is not only intended to function as a hardware drying system. It also acts as an experimental platform for collecting real cinnamon drying data and studying drying behaviour.
 
 The main research objective of this component is to investigate whether continuous sensor data and drying-state information can be used to provide reliable Remaining Drying Time predictions and support adaptive drying control.
-
-The expected final system will combine:
-
-Plaintext
-Continuous Monitoring → Moisture Estimation → Drying Data Collection → RDT Prediction → Adaptive Dr
