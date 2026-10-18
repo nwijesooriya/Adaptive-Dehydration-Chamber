@@ -69,7 +69,7 @@
 // =============================================================
 
 // Calibration reference
-const float CALIBRATION_WEIGHT_G = 100.0;
+float calibrationReferenceWeight = 0.0;
 
 // Cooling / purge time after target MC reached
 const unsigned long COOLING_TIME_MS = 120000UL; // 2 minutes
@@ -769,7 +769,7 @@ void showStartupScreen() {
   }
 
   display.setCursor(0, 50);
-  display.println("D = Calibrate 100g");
+  display.println("D = Calibrate known weight");
 
   display.display();
 }
@@ -807,7 +807,7 @@ void showCalibrationWeight() {
   display.println("CALIBRATION");
 
   display.setCursor(0, 18);
-  display.println("Place 100g soap");
+  display.println("Place known weight");
 
   display.setCursor(0, 36);
   display.println("in tray center");
@@ -1651,7 +1651,7 @@ void handleKey(char key) {
 
       calibrationFactor =
         raw /
-        CALIBRATION_WEIGHT_G;
+        calibrationReferenceWeight;
 
       scale.set_scale(
         calibrationFactor
