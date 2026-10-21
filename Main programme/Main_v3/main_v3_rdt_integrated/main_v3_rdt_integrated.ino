@@ -86,6 +86,9 @@ const unsigned long DISPLAY_INTERVAL_MS = 500UL;
 // Research-data logging interval
 const unsigned long LOG_INTERVAL_MS = 60000UL; // 1 minute
 
+// Upload live telemetry to Express/MongoDB every 60 seconds
+const unsigned long TELEMETRY_UPLOAD_INTERVAL_MS = 60000UL;
+
 // -------------------------------------------------------------
 // WI-FI + RDT MODEL API
 // -------------------------------------------------------------
@@ -101,6 +104,10 @@ const char* WIFI_PASSWORD = "ADEfbF0D";
 // when you opened the Flask API from the browser.
 const char* RDT_API =
   "http://192.168.8.129:5001/predict-rdt";
+
+// Express / MongoDB telemetry endpoint
+const char* DASHBOARD_API =
+  "http://192.168.8.129:5000/api/dehydration/telemetry";
 
 // First prediction shortly after drying starts, then refresh every 5 min.
 const unsigned long RDT_FIRST_REQUEST_DELAY_MS = 60000UL;  // 1 minute
@@ -281,6 +288,8 @@ unsigned long coolingStartMs = 0;
 unsigned long lastSensorUpdate = 0;
 unsigned long lastDisplayUpdate = 0;
 unsigned long lastLogTime = 0;
+unsigned long lastTelemetryUploadMs = 0;
+bool dashboardApiOnline = false;
 
 // -------------------------------------------------------------
 // RDT prediction / Wi-Fi state
@@ -626,6 +635,299 @@ bool requestRDTPrediction() {
   return true;
 }
 
+// =============================================================
+// SEND LIVE TELEMETRY TO EXPRESS / MONGODB
+// =============================================================
+
+bool sendTelemetryToDashboard() {
+
+  if (WiFi.status() != WL_CONNECTED) {
+
+    dashboardApiOnline = false;
+
+    Serial.println(
+      "Dashboard upload skipped: WiFi offline."
+    );
+
+    return false;
+  }
+
+
+  // Only upload meaningful drying-session data
+  if (
+    systemState != DRYING &&
+    systemState != COOLING &&
+    systemState != COMPLETE &&
+    systemState != ABORTED
+  ) {
+
+    return false;
+  }
+
+
+  HTTPClient http;
+
+  http.setTimeout(3000);
+
+  http.begin(DASHBOARD_API);
+
+  http.addHeader(
+    "Content-Type",
+    "application/json"
+  );
+
+
+  // -----------------------------------------------------------
+  // BUILD JSON PAYLOAD
+  // -----------------------------------------------------------
+
+  JsonDocument payload;
+
+
+  payload["batchId"] =
+    batchId;
+
+
+  payload["initialMoisture"] =
+    initialMoisture;
+
+
+  payload["targetMoisture"] =
+    targetMoisture;
+
+
+  payload["initialWeight"] =
+    initialWeight;
+
+
+  payload["currentWeight"] =
+    currentWeight;
+
+
+  payload["targetWeight"] =
+    targetWeight;
+
+
+  if (!isnan(estimatedMoisture)) {
+
+    payload["estimatedMoisture"] =
+      estimatedMoisture;
+  }
+
+
+  if (!isnan(chamberTemperature)) {
+
+    payload["temperature"] =
+      chamberTemperature;
+  }
+
+
+  if (!isnan(chamberHumidity)) {
+
+    payload["humidity"] =
+      chamberHumidity;
+  }
+
+
+  // Backend expects seconds
+  payload["elapsedTime"] =
+    getDryingElapsed() / 1000UL;
+
+
+  // -----------------------------------------------------------
+  // RDT
+  // Dashboard currently stores RDT in seconds
+  // -----------------------------------------------------------
+
+  if (rdtPredictionValid) {
+
+    float displayedRDTMinutes =
+      getDisplayedRDTMinutes();
+
+    payload["remainingDryingTime"] =
+      (unsigned long)
+      round(displayedRDTMinutes * 60.0);
+  }
+
+  else {
+
+    payload["remainingDryingTime"] =
+      nullptr;
+  }
+
+
+  // -----------------------------------------------------------
+  // CONTROL STATE
+  // -----------------------------------------------------------
+
+  payload["heaterState"] =
+    heaterOn ? "ON" : "OFF";
+
+
+  payload["fanState"] =
+    fanOn ? "ON" : "OFF";
+
+
+  payload["systemState"] =
+    stateName();
+
+
+  // -----------------------------------------------------------
+  // ML STATUS
+  // -----------------------------------------------------------
+
+  if (rdtApiOnline) {
+
+    payload["mlStatus"] =
+      "ONLINE";
+  }
+
+  else if (
+    WiFi.status() ==
+    WL_CONNECTED
+  ) {
+
+    payload["mlStatus"] =
+      "PENDING";
+  }
+
+  else {
+
+    payload["mlStatus"] =
+      "OFFLINE";
+  }
+
+
+  // -----------------------------------------------------------
+  // SERIAL DEBUG
+  // -----------------------------------------------------------
+
+  String jsonData;
+
+  serializeJson(
+    payload,
+    jsonData
+  );
+
+
+  Serial.println();
+
+  Serial.println(
+    "--- DASHBOARD TELEMETRY ---"
+  );
+
+  Serial.println(
+    jsonData
+  );
+
+
+  // -----------------------------------------------------------
+  // SEND
+  // -----------------------------------------------------------
+
+  int httpCode =
+    http.POST(jsonData);
+
+
+  Serial.print(
+    "Dashboard HTTP response: "
+  );
+
+  Serial.println(
+    httpCode
+  );
+
+
+  if (
+    httpCode >= 200 &&
+    httpCode < 300
+  ) {
+
+    String response =
+      http.getString();
+
+    Serial.println(
+      "Dashboard telemetry stored."
+    );
+
+    Serial.println(
+      response
+    );
+
+
+    dashboardApiOnline =
+      true;
+
+
+    http.end();
+
+    return true;
+  }
+
+
+  // -----------------------------------------------------------
+  // ERROR
+  // -----------------------------------------------------------
+
+  if (httpCode < 0) {
+
+    Serial.print(
+      "Dashboard HTTP error: "
+    );
+
+    Serial.println(
+      http.errorToString(httpCode)
+    );
+  }
+
+  else {
+
+    Serial.println(
+      http.getString()
+    );
+  }
+
+
+  dashboardApiOnline =
+    false;
+
+
+  http.end();
+
+  return false;
+}
+
+// =============================================================
+// DASHBOARD TELEMETRY SCHEDULER
+// =============================================================
+
+void updateDashboardTelemetrySchedule() {
+
+  if (
+    systemState != DRYING &&
+    systemState != COOLING
+  ) {
+
+    return;
+  }
+
+
+  if (
+    millis() -
+    lastTelemetryUploadMs
+    < TELEMETRY_UPLOAD_INTERVAL_MS
+  ) {
+
+    return;
+  }
+
+
+  lastTelemetryUploadMs =
+    millis();
+
+
+  sendTelemetryToDashboard();
+}
 
 void updateRDTPredictionSchedule() {
 
@@ -921,6 +1223,8 @@ void controlCooling() {
     setFan(false);
 
     systemState = COMPLETE;
+
+    sendTelemetryToDashboard();
 
     Serial.println();
     Serial.println(
@@ -1908,6 +2212,10 @@ void startDryingSession() {
 
   lastLogTime =
     millis() - LOG_INTERVAL_MS;
+
+    // Allow first dashboard telemetry upload immediately
+  lastTelemetryUploadMs =
+    millis() - TELEMETRY_UPLOAD_INTERVAL_MS;
 }
 
 
@@ -2512,6 +2820,8 @@ void handleKey(char key) {
       systemState =
         ABORTED;
 
+      sendTelemetryToDashboard();
+
       Serial.println(
         "*** EMERGENCY STOP ***"
       );
@@ -2851,7 +3161,10 @@ void loop() {
   // -----------------------------------------------------------
 
   maintainWiFi();
+
   updateRDTPredictionSchedule();
+
+  updateDashboardTelemetrySchedule();
 
 
   // -----------------------------------------------------------
